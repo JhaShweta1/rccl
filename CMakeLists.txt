@@ -23,6 +23,7 @@ option(BUILD_BFD                               "Enable custom backtrace (if bfd.
 option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY "File/folder reorg with backward compatibility" OFF)
 option(BUILD_LOCAL_GPU_TARGET_ONLY             "Build only for GPUs detected on this machine"  OFF)
 option(BUILD_SHARED_LIBS                       "Build as shared library"                       ON)
+option(BUILD_INTERMEDIATE_STATIC_LIBS          "Build intermediate static libraries"           OFF)
 option(BUILD_TESTS                             "Build unit test programs"                      OFF)
 option(COLLTRACE                               "Collective Trace Option"                       ON)
 option(ENABLE_MSCCL_KERNEL                     "Enable MSCCL while compiling"                  ON)
@@ -411,7 +412,9 @@ configure_file(src/nccl.h.in ${PROJECT_BINARY_DIR}/include/nccl.h)      # Used b
 # Collect list of all source files
 #==================================================================================================
 # E.g: find src -type f \( -name "*.cc" -o -name "*.h" -o -name "*.hpp" \) | sort
-set(SRC_FILES
+# src are divided into smaller groups
+# Group 1: Core Communication Sources
+set(RCCL_CORE_SOURCES
   src/bootstrap.cc
   src/channel.cc
   src/collectives.cc
@@ -426,6 +429,10 @@ set(SRC_FILES
   src/proxy.cc
   src/rccl_wrap.cc
   src/transport.cc
+  )
+
+# Group 2: Device Sources
+set(RCCL_DEVICE_SOURCES
   src/device/all_gather.h
   src/device/all_reduce.h
   src/device/alltoall_pivot.h
@@ -445,6 +452,11 @@ set(SRC_FILES
   src/device/onerank.cu
   src/device/network/unpack/unpack_defs.h
   src/device/network/unpack/unpack.h
+)
+
+
+# Group 3: Graph Sources
+set(RCCL_GRAPH_SOURCES
   src/graph/connect.cc
   src/graph/paths.cc
   src/graph/rings.cc
@@ -458,6 +470,10 @@ set(SRC_FILES
   src/graph/tuning.cc
   src/graph/xml.cc
   src/graph/xml.h
+)
+
+# Group 4: Include Sources
+set(RCCL_INCLUDE_SOURCES
   src/include/alloc.h
   src/include/alt_rsmi.h
   src/include/archinfo.h
@@ -564,6 +580,10 @@ set(SRC_FILES
   src/include/nvtx3/nvtxDetail/nvtxInitDefs.h
   src/include/nvtx3/nvtxDetail/nvtxLinkOnce.h
   src/include/nvtx3/nvtxDetail/nvtxTypes.h
+)
+
+# Group 5: MISC Sources
+set(RCCL_MISC_SOURCES
   src/misc/alt_rsmi.cc
   src/misc/archinfo.cc
   src/misc/argcheck.cc
@@ -593,6 +613,10 @@ set(SRC_FILES
   src/misc/msccl/msccl_parser.cc
   src/misc/msccl/msccl_setup.cc
   src/misc/msccl/msccl_status.cc
+)
+
+# Group 6: RAS Sources
+set(RCCL_RAS_SOURCES
   src/ras/client.cc
   src/ras/client_support.cc
   src/ras/collectives.cc
@@ -600,6 +624,10 @@ set(SRC_FILES
   src/ras/ras.cc
   src/ras/ras_internal.h
   src/ras/rasnet.cc
+)
+
+# Group 7: Register & Transport Sources
+set(RCCL_REGISTER_TRANSPORT_SOURCES
   src/register/coll_reg.cc
   src/register/register.cc
   src/register/sendrecv_reg.cc
@@ -611,6 +639,16 @@ set(SRC_FILES
   src/transport/nvls.cc
   src/transport/p2p.cc
   src/transport/shm.cc
+)
+
+set(SRC_FILES
+  ${RCCL_CORE_SOURCES}
+  ${RCCL_DEVICE_SOURCES}
+  ${RCCL_GRAPH_SOURCES}
+  ${RCCL_INCLUDE_SOURCES}
+  ${RCCL_MISC_SOURCES}
+  ${RCCL_RAS_SOURCES}
+  ${RCCL_REGISTER_TRANSPORT_SOURCES}
 )
 
 if (ENABLE_MSCCL_KERNEL)
@@ -721,8 +759,280 @@ add_custom_target(git_version_check
 
 # Set up RCCL library
 #==================================================================================================
-## Set RCCL source files
-add_library(rccl ${HIP_SOURCES})
+## Set RCCL source files based on BUILD_INTERMEDIATE_STATIC_LIBS option
+if(BUILD_INTERMEDIATE_STATIC_LIBS)
+  # Create lists for hipified sources corresponding to each component
+  set(HIP_CORE_SOURCES "")
+  set(HIP_DEVICE_SOURCES "")
+  set(HIP_GRAPH_SOURCES "")
+  set(HIP_INCLUDE_SOURCES "")
+  set(HIP_MISC_SOURCES "")
+  set(HIP_RAS_SOURCES "")
+  set(HIP_REGISTER_TRANSPORT_SOURCES "")
+  set(HIP_MSCCL_SOURCES "")
+  set(HIP_MSCCLPP_SOURCES "")
+  
+  # Categorize hipified sources based on their original source groups
+  foreach(hip_src ${HIP_SOURCES})
+    if(hip_src MATCHES "src/bootstrap\\.|src/channel\\.|src/collectives\\.|src/debug\\.|src/enqueue\\.|src/group\\.|src/init\\.|src/init_nvtx\\.|src/mnnvl\\.|src/net\\.|src/msccl\\.|src/proxy\\.|src/rccl_wrap\\.|src/transport\\.")
+      list(APPEND HIP_CORE_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "src/device/")
+      list(APPEND HIP_DEVICE_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "src/graph/")
+      list(APPEND HIP_GRAPH_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "src/include/")
+      #list(APPEND HIP_INCLUDE_SOURCES ${hip_src})
+      list(APPEND HIP_MISC_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "src/misc/")
+      list(APPEND HIP_MISC_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "src/ras/")
+      list(APPEND HIP_RAS_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "src/register/|src/transport/")
+      list(APPEND HIP_REGISTER_TRANSPORT_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "msccl_kernel")
+      list(APPEND HIP_MSCCL_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "mscclpp")
+      list(APPEND HIP_MSCCLPP_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "gensrc/")
+      # Generated files go to misc
+      list(APPEND HIP_MISC_SOURCES ${hip_src})
+    elseif(hip_src MATCHES "git_version\\.cpp")
+      # git_version.cpp goes to misc
+      list(APPEND HIP_MISC_SOURCES ${hip_src})
+    else()
+      # Any uncategorized files go to misc
+      list(APPEND HIP_MISC_SOURCES ${hip_src})
+    endif()
+  endforeach()
+  
+  # Create 7 intermediate STATIC libraries (not OBJECT)
+  
+  # 1. Core Communication Static Library
+  add_library(rccl_core_static STATIC ${HIP_CORE_SOURCES})
+  
+  # 2. Device Static Library
+  add_library(rccl_device_static STATIC ${HIP_DEVICE_SOURCES})
+  
+  # 3. Graph Static Library
+  add_library(rccl_graph_static STATIC ${HIP_GRAPH_SOURCES})
+  
+  # 4. Include Static Library (headers might not generate object files)
+  #if(HIP_INCLUDE_SOURCES)
+  #  add_library(rccl_include_static STATIC ${#HIP_INCLUDE_SOURCES})
+  #endif()
+  
+  # 5. Misc Static Library
+  add_library(rccl_misc_static STATIC ${HIP_MISC_SOURCES})
+  
+  # 6. RAS Static Library
+  add_library(rccl_ras_static STATIC ${HIP_RAS_SOURCES})
+  
+  # 7. Register & Transport Static Library
+  add_library(rccl_register_transport_static STATIC ${HIP_REGISTER_TRANSPORT_SOURCES})
+  
+  # Add optional components if enabled
+  if(ENABLE_MSCCL_KERNEL AND HIP_MSCCL_SOURCES)
+    add_library(rccl_msccl_static STATIC ${HIP_MSCCL_SOURCES})
+  endif()
+  
+  if(ENABLE_MSCCLPP AND HIP_MSCCLPP_SOURCES)
+    add_library(rccl_mscclpp_static STATIC ${HIP_MSCCLPP_SOURCES})
+  endif()
+  
+  # Set properties for all static libraries
+  set(RCCL_STATIC_LIBS
+    rccl_core_static
+    rccl_device_static
+    rccl_graph_static
+    rccl_misc_static
+    rccl_ras_static
+    rccl_register_transport_static
+  )
+  
+  if(HIP_INCLUDE_SOURCES)
+    list(APPEND RCCL_STATIC_LIBS rccl_include_static)
+  endif()
+  
+  if(ENABLE_MSCCL_KERNEL AND HIP_MSCCL_SOURCES)
+    list(APPEND RCCL_STATIC_LIBS rccl_msccl_static)
+  endif()
+  
+  if(ENABLE_MSCCLPP AND HIP_MSCCLPP_SOURCES)
+    list(APPEND RCCL_STATIC_LIBS rccl_mscclpp_static)
+  endif()
+  
+  # Apply properties to all static libraries
+  foreach(static_lib ${RCCL_STATIC_LIBS})
+    # Set position independent code for shared library creation
+    set_property(TARGET ${static_lib} PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+    # CRITICAL: Define HIP platform for AMD
+    target_compile_definitions(${static_lib} PRIVATE __HIP_PLATFORM_AMD__=1)
+    
+    # Link with HIP device library
+    target_link_libraries(${static_lib} PRIVATE hip::device)
+    
+    # Apply same include directories
+    target_include_directories(${static_lib} PRIVATE ${PROJECT_BINARY_DIR}/include)
+    target_include_directories(${static_lib} PRIVATE ${HIPIFY_DIR}/src)
+    target_include_directories(${static_lib} PRIVATE ${HIPIFY_DIR}/src/include)
+    target_include_directories(${static_lib} PRIVATE ${HIPIFY_DIR}/src/device)
+    target_include_directories(${static_lib} PRIVATE ${HIPIFY_DIR}/src/device/network/unpack)
+    target_include_directories(${static_lib} PRIVATE ${HIPIFY_DIR}/gensrc)
+    target_include_directories(${static_lib} PRIVATE ${HSA_INCLUDE_PATH})
+    target_include_directories(${static_lib} PRIVATE ${ROCM_SMI_INCLUDE_DIR})
+    if(DEMANGLE_DIR)
+      target_include_directories(${static_lib} PRIVATE ${DEMANGLE_DIR})
+    endif()
+    target_include_directories(${static_lib} SYSTEM PRIVATE ${HIP_INCLUDE_DIRS})
+    
+    # Apply same compile definitions
+    if(COLLTRACE)
+      target_compile_definitions(${static_lib} PRIVATE ENABLE_COLLTRACE)
+    endif()
+    if(ENABLE_MSCCL_KERNEL)
+      target_compile_definitions(${static_lib} PRIVATE COMPILE_MSCCL_KERNEL)
+    endif()
+    if(ENABLE_MSCCLPP)
+      target_compile_definitions(${static_lib} PRIVATE ENABLE_MSCCLPP)
+    endif()
+    if(HAVE_ROCM_SMI64CONFIG)
+      target_compile_definitions(${static_lib} PRIVATE USE_ROCM_SMI64CONFIG)
+    endif()
+    if(HAVE_ROCM_SMI_THREAD_ONLY_MUTEX)
+      target_compile_definitions(${static_lib} PRIVATE USE_ROCM_SMI_THREAD_ONLY_MUTEX)
+    endif()
+    if(NPKIT_FLAGS)
+      target_compile_definitions(${static_lib} PRIVATE ${NPKIT_FLAGS})
+    endif()
+    if(PROFILE)
+      target_compile_definitions(${static_lib} PRIVATE ENABLE_PROFILING)
+    endif()
+    if(ROCTX_ENABLE)
+      target_compile_definitions(${static_lib} PRIVATE ROCTX_ENABLE)
+    else()
+      target_compile_definitions(${static_lib} PRIVATE NVTX_NO_IMPL)
+      target_compile_definitions(${static_lib} PRIVATE NVTX_DISABLE)
+    endif()
+    if(TRACE)
+      target_compile_definitions(${static_lib} PRIVATE ENABLE_TRACE)
+    endif()
+    if(${HIP_CONTIGUOUS_MEMORY})
+      target_compile_definitions(${static_lib} PRIVATE HIP_CONTIGUOUS_MEMORY)
+    endif()
+    if("${hip_version_string}" VERSION_GREATER_EQUAL "5.7.31920")
+      target_compile_definitions(${static_lib} PRIVATE HIP_UNCACHED_MEMORY)
+    else()
+      if(NOT IFC_ENABLED)
+        target_compile_options(${static_lib} PRIVATE --hipcc-func-supp)
+      endif()
+    endif()
+    if(BUILD_BFD)
+      if(HAVE_BFD)
+        target_compile_definitions(${static_lib} PRIVATE HAVE_BFD)
+      endif()
+      if(HAVE_DECL_BFD_GET_SECTION_FLAGS)
+        target_compile_definitions(${static_lib} PRIVATE HAVE_DECL_BFD_GET_SECTION_FLAGS)
+      endif()
+      if(HAVE_DECL_BFD_GET_SECTION_VMA)
+        target_compile_definitions(${static_lib} PRIVATE HAVE_DECL_BFD_GET_SECTION_VMA)
+      endif()
+      if(HAVE_TWO_ARG_BFD_SECTION_SIZE)
+        target_compile_definitions(${static_lib} PRIVATE HAVE_TWO_ARG_BFD_SECTION_SIZE)
+      endif()
+    endif()
+    if(IFC_ENABLED)
+      target_compile_definitions(${static_lib} PRIVATE USE_INDIRECT_FUNCTION_CALL)
+    endif()
+    if(DEMANGLE_DIR)
+      target_compile_definitions(${static_lib} PRIVATE "HAVE_CPLUS_DEMANGLE=1")
+      target_compile_definitions(${static_lib} PRIVATE "HAVE_DECL_BASENAME=1")
+    endif()
+    if(LL128_ENABLED)
+      target_compile_definitions(${static_lib} PRIVATE ENABLE_LL128)
+    endif()
+    
+    # Apply same compile options
+    if(HAVE_PARALLEL_JOBS)
+      target_compile_options(${static_lib} PRIVATE -parallel-jobs=12)
+    endif()
+    if(ROCM_VERSION VERSION_GREATER_EQUAL "60200")
+      target_compile_options(${static_lib} PRIVATE --offload-compress)
+    endif()
+    target_compile_options(${static_lib} PRIVATE -Werror=uninitialized)
+    target_compile_options(${static_lib} PRIVATE -Werror=sometimes-uninitialized)
+    target_compile_options(${static_lib} PRIVATE -Wall)
+    target_compile_options(${static_lib} PRIVATE -Wno-format-nonliteral)
+    target_compile_options(${static_lib} PRIVATE -fgpu-rdc)
+    target_compile_options(${static_lib} PRIVATE -fvisibility=hidden)
+    if(HAVE_KERNARG_PRELOAD)
+      target_compile_options(${static_lib} PRIVATE -mllvm --amdgpu-kernarg-preload-count=16)
+    endif()
+
+    # Add GPU architecture flags
+    foreach(target ${GPU_TARGETS})
+      target_compile_options(${static_lib} PRIVATE --offload-arch=${target})
+    endforeach()
+    
+    if(BUILD_ADDRESS_SANITIZER)
+      target_compile_options(${static_lib} PRIVATE -fsanitize=address -shared-libasan)
+    endif()
+    if(TIMETRACE)
+      target_compile_options(${static_lib} PRIVATE -ftime-trace)
+    endif()
+    if(FAULT_INJECTION)
+      target_compile_definitions(${static_lib} PRIVATE ENABLE_FAULT_INJECTION)
+    endif()
+    
+    # Add git_version_check dependency
+    add_dependencies(${static_lib} git_version_check)
+    
+    # Set output name to create .a files with proper names
+    set_target_properties(${static_lib} PROPERTIES OUTPUT_NAME ${static_lib})
+  endforeach()
+  
+  # Create empty shared library first
+  set(EMPTY_SOURCES)
+  set(RCCL_INIT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/rccl_init.cpp")
+  file(WRITE ${RCCL_INIT_SOURCE} 
+    "// RCCL initialization file\n"
+    "namespace { int rccl_init_dummy = 0; }\n")
+
+  # Build list of static library files for --whole-archive
+  set(STATIC_LIB_FILES "")
+  foreach(static_lib ${RCCL_STATIC_LIBS})
+    list(APPEND STATIC_LIB_FILES $<TARGET_FILE:${static_lib}>)
+  endforeach()
+
+  add_library(rccl SHARED ${RCCL_INIT_SOURCE})
+
+  file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rccl_static_libs.txt" 
+    CONTENT "$<JOIN:${STATIC_LIB_FILES},\n>")
+  
+  # Use --whole-archive to ensure ALL symbols are included
+  # Use --allow-multiple-definition to handle duplicate HIP symbols
+  target_link_options(rccl PRIVATE
+    -fgpu-rdc
+    #-Wl,--whole-archive
+    "@${CMAKE_CURRENT_BINARY_DIR}/rccl_static_libs.txt"
+    #-Wl,--no-whole-archive
+    -Wl,--allow-multiple-definition
+    -Wl,-z,muldefs  # Alternative to --allow-multiple-definition
+  )
+  
+  # Link the static libraries for dependency tracking
+  target_link_libraries(rccl PRIVATE ${RCCL_STATIC_LIBS})
+  
+  # Message to confirm .a files will be created
+  message(STATUS "Static archives will be created:")
+  foreach(static_lib ${RCCL_STATIC_LIBS})
+    message(STATUS "  - lib${static_lib}.a")
+  endforeach()
+  
+else()
+  # Standard build - all sources in one library
+  add_library(rccl ${HIP_SOURCES})
+endif()
 
 ## Set RCCL dependencies
 add_dependencies(rccl git_version_check)                                      # Execute git_version_check during build
@@ -929,9 +1239,12 @@ endif()
 
 if(NOT BUILD_SHARED_LIBS)
   message(STATUS "Building static RCCL library")
+elseif(BUILD_INTERMEDIATE_STATIC_LIBS)
+  message(STATUS "Building shared RCCL library with intermediate static files")
 else()
   message(STATUS "Building shared RCCL library")
 endif()
+
 if (HAVE_KERNARG_PRELOAD)
   target_link_options(rccl PRIVATE "SHELL:-Xoffload-linker -mllvm=-amdgpu-kernarg-preload-count=16")
 endif()
@@ -1060,10 +1373,10 @@ if(BUILD_TESTS)
   rocm_package_setup_client_component(tests PACKAGE_NAME unittests)
   add_subdirectory(test)
 
-  if(BUILD_SHARED_LIBS)
+  if(BUILD_SHARED_LIBS OR BUILD_INTERMEDIATE_STATIC_LIBS)
     add_custom_command(TARGET rccl POST_BUILD
       COMMENT "Extracting metadata from librccl.so"
-      COMMAND COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/extract_metadata.cmake
+      COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/extract_metadata.cmake
       VERBATIM
     )
   endif()
