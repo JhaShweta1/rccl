@@ -16,6 +16,41 @@ endif()
 #==================================================================================================
 project(rccl CXX)
 
+# Enable compiler cache (ccache/sccache) if available
+if(USE_COMPILER_CACHE)
+  # First try to find sccache
+  find_program(SCCACHE_PROGRAM sccache)
+  if(SCCACHE_PROGRAM)
+    message(STATUS "Found sccache: ${SCCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${SCCACHE_PROGRAM})
+    set(CMAKE_C_COMPILER_LAUNCHER ${SCCACHE_PROGRAM})
+    
+    # Set sccache environment variables for better caching
+    set(ENV{SCCACHE_CACHE_SIZE} "50G")
+    set(ENV{SCCACHE_IDLE_TIMEOUT} "0")
+  else()
+    # If sccache not found, try ccache
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+      message(STATUS "Found ccache: ${CCACHE_PROGRAM}")
+      set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+      set(CMAKE_C_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+      
+      # Set ccache environment variables for better caching
+      set(ENV{CCACHE_BASEDIR} ${CMAKE_SOURCE_DIR})
+      set(ENV{CCACHE_SLOPPINESS} "file_macro,time_macros,include_file_mtime,include_file_ctime")
+      set(ENV{CCACHE_COMPRESS} "1")
+      set(ENV{CCACHE_COMPRESSLEVEL} "6")
+      set(ENV{CCACHE_MAXSIZE} "50G")
+      
+      # For CUDA/HIP files
+      set(ENV{CCACHE_NOHASHDIR} "1")
+    else()
+      message(STATUS "Neither sccache nor ccache found - continuing without compiler cache")
+    endif()
+  endif()
+endif()
+
 # Build options
 #==================================================================================================
 option(BUILD_ADDRESS_SANITIZER                 "Enable address sanitizer"                      OFF)
@@ -36,6 +71,7 @@ option(PROFILE                                 "Enable profiling"               
 option(TIMETRACE                               "Enable time-trace during compilation"          OFF)
 option(TRACE                                   "Enable additional tracing"                     OFF)
 option(FAULT_INJECTION                         "Enable fault injection"                        ON)
+option(USE_COMPILER_CACHE                      "Use ccache or sccache if available"            ON)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -771,6 +807,10 @@ if(BUILD_INTERMEDIATE_STATIC_LIBS)
   set(HIP_REGISTER_TRANSPORT_SOURCES "")
   set(HIP_MSCCL_SOURCES "")
   set(HIP_MSCCLPP_SOURCES "")
+
+  set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> qcT <TARGET> <OBJECTS>")
+  set(CMAKE_CXX_ARCHIVE_APPEND "<CMAKE_AR> qT <TARGET> <OBJECTS>")
+  set(CMAKE_CXX_ARCHIVE_FINISH "<CMAKE_RANLIB> <TARGET>")
   
   # Categorize hipified sources based on their original source groups
   foreach(hip_src ${HIP_SOURCES})
